@@ -16,7 +16,7 @@ A maze game written in **MIPS assembly** for the **MARS emulator**, using the **
    - Yellow squares will be randomly generated in the maze that, once hit, will disappear
    - Once all coins are collected (disappear), the exit gate will open
 3. Color Swap:
-   - Use number keys on the keyboard to change the color of the user's square in the maze
+   - Use number keys on the keyboard to change the color of the maze
 
 ## Requirements
 - **MARS MIPS Simulator** (recommended: a recent MARS jar)
@@ -45,7 +45,8 @@ A maze game written in **MIPS assembly** for the **MARS emulator**, using the **
 
 ## Controls
 - `W/A/S/D`: user movement
-- `1-4`: change player color
+- `1-3`: change maze color
+- maze color code --> (1:blue, 2:green, 3:cyan)
 
 ## Game Rules
 - Start at: start tile (automatically placed there when code runs)
@@ -64,6 +65,7 @@ A maze game written in **MIPS assembly** for the **MARS emulator**, using the **
 - `maze.asm` — main program
 
 ## Customization
+These customizations are in the actual CODE, not while the game is running
 - Colors (wall/player/goal)
 - Number of coins / trap count
 
