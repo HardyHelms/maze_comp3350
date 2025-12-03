@@ -1,7 +1,6 @@
-# maze
+# maze_with_traps_v3.asm
+# Features: Dynamic Walls, Hidden Traps, 3 Neon Orange Coins, Locked Goal Gate
 
-# array size 15 * 15
-# index 0 ~ 14
 .data
 mdArray:	.word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 		.word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
@@ -23,46 +22,47 @@ arrSize:	.word 15
 
 NEW_LINE: 	.asciiz "\n"
 
-# Each data size
+# GAME STATE VARIABLES
+coinsCollected: .word 0     # Track how many coins user has
+wallColor:      .word 0x000000FF  # Default wall color (BLUE)
+
+# CONSTANTS
 .eqv	DATA_SIZE     4
-
 .eqv	ARRSIZE		15
-
-# screen size
 .eqv 	SCREEN_WIDTH	64
 .eqv 	SCREEN_HEIGHT 	64
-
-# each dot is using 4 so 64/4 = 16
 .eqv	PIXEL_WIDTH	16
 .eqv	PIXEL_HEIGHT	16
 
-# Maze start
+# Locations
 .eqv	MAZE_START_X	1
 .eqv	MAZE_START_Y	0
-
-# Maze Goal
 .eqv	MAZE_GOAL_X	13
 .eqv	MAZE_GOAL_Y	14
-
-# start
 .eqv	START_X	0
 .eqv	START_Y 0
 
-# colors
-.eqv	RED 	0x00FF0000
-.eqv	GREEN 	0x0000FF00
-.eqv	BLUE 	0x000000FF
-.eqv	WHITE 	0x00FFFFFF
-.eqv	YELLOW 	0x00FFFF00
-.eqv	CYAN 	0x0000FFFF
-.eqv	MAGENTA 0x00FF00FF
-.eqv	L_GRAY	0x00D3D3D3
+# Colors
+.eqv	RED 	    0x00FF0000
+.eqv	GREEN 	    0x0000FF00
+.eqv	BLUE 	    0x000000FF
+.eqv	WHITE 	    0x00FFFFFF
+.eqv	YELLOW 	    0x00FFFF00
+.eqv	CYAN 	    0x0000FFFF
+.eqv	MAGENTA     0x00FF00FF
+.eqv	L_GRAY	    0x00D3D3D3
+.eqv    NEON_ORANGE 0x00FF5F1F  # NEW: Neon Orange Color
 
-# traps
+# Map Values
+# 0 = Path, 1 = Wall
 .eqv TRAP_VAL   	2
 .eqv HIT_TRAP_VAL	3
 .eqv NUM_TRAPS  	3
 
+.eqv COIN_VAL       4
+.eqv NUM_COINS      3
+
+.eqv GATE_VAL       5   # NEW: Value for the locked gate
 
 .text
 main:
@@ -74,11 +74,11 @@ main:
 	addi 	$a2, $0, WHITE  	# a2 = color
 	
 loop1:
-	beq	$a0, PIXEL_WIDTH, check_Y	# if x's location == 16, check if y is also 16
-	beq	$a1, PIXEL_HEIGHT, next		# if only y at 16, reset x location and draw next
-	jal	draw_pixel			#
-	addi	$a0, $a0, 1			# x++
-	j	loop1				# keep looping until x = 16
+	beq	$a0, PIXEL_WIDTH, check_Y
+	beq	$a1, PIXEL_HEIGHT, next
+	jal	draw_pixel
+	addi	$a0, $a0, 1
+	j	loop1
 
 
 check_Y:
@@ -88,8 +88,8 @@ check_Y:
 	j	loop1
 	
 next:
-	li	$s0, 0		# i = 0
-	li	$s1, 250	# i < 250
+	li	$s0, 0
+	li	$s1, 250
 	
 loop2:
 	addi	$s0, $s0, 1
@@ -97,107 +97,116 @@ loop2:
 	j	loop2
 	
 maze_process:
-	# TEST 1 #
+	# 1. Generate Outer Walls
 	la	$a0, mdArray
 	lw	$a1, arrSize
 	jal	generate_maze_outer_moat
 
-	# TEST 2 #
+	# 2. Generate Maze Streets & Locked Gate
 	la	$a0, mdArray
 	lw	$a1, arrSize
 	jal	generate_maze_street
 
-	# NEW: place hidden traps on path cells
+	# 3. Place Hidden Traps
 	la	$a0, mdArray
 	lw	$a1, arrSize
 	jal	place_traps
 
-	# TEST 3 #
+    # 4. Place Neon Coins
+	la	$a0, mdArray
+	lw	$a1, arrSize
+	jal	place_coins
+
+	# 5. Draw Everything
 	la	$a0, mdArray
 	lw	$a1, arrSize
 	jal	draw_maze
 
-	# TEST 4 #
+	# 6. Start Game Loop
 	j	user_location
 
-	
-
 exit:
-	#
-	# move	$a0, $v0
-	# li	$v0, 1
-	# syscall
 	li	$v0, 10
 	syscall
 
 
-
-
-
-
-
 #################################################
 # subroutine to draw a pixel
-# $a0 = X
-# $a1 = Y
-# $a2 = color
+# $a0 = X, $a1 = Y, $a2 = color
 draw_pixel:
-	# pixel address = $gp + 4*(x + y*width)
 	mul	$t9, $a1, PIXEL_WIDTH   # y * WIDTH
 	add	$t9, $t9, $a0	  # add X
-	mul	$t9, $t9, 4	  # multiply by 4 to get word offset
-	add	$t9, $t9, $gp	  # add to base address
-	sw	$a2, ($t9)	  # store color at memory location
+	mul	$t9, $t9, 4	  # word offset
+	add	$t9, $t9, $gp	  # base address
+	sw	$a2, ($t9)	  # store color
 	jr 	$ra
 	
 
-
 #################################################
 # draw_maze 
-# $a0 = array address
-# $a1 = array size
+# Draws the map based on mdArray values
 draw_maze:
 	addi	$sp, $sp, -4
 	sw	$ra, 0($sp)
 	li	$s0, 0			# return value
-	li	$t0, 0			# t0 as index i
-	li	$t1, 0			# t1 as index j
+	li	$t0, 0			# i
+	li	$t1, 0			# j
+
+    # Load dynamic wall color
+    lw      $t8, wallColor
+
 draw_Loop1:
-	blt	$t1, $a1, draw_Loop2	# if (int j=0; j < 15; j++)
-	move	$v0, $s0		# reutrn value
+	blt	$t1, $a1, draw_Loop2
+	move	$v0, $s0
 	lw	$ra, 0($sp)
 	addi	$sp, $sp, 4
 	jr	$ra
 draw_Loop2:
-	# Define the 2D index address #
 	mul	$t2, $t1, $a1		# t1 = rowIndex * colSize
 	add	$t2, $t2, $t0		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	# get element of arr index and save to $t3 #
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
 	lw	$t3, 0($t2)
 
 	move	$t5, $a0
 	move	$t6, $a1
 	
-	# 0 = path => skip
-	beq	$t3, $zero, skip
+	# Logic Checks
+	beq	$t3, $zero, skip        # 0 = path
 
-	# 1 = wall => BLUE
 	li	$t7, 1
-	beq	$t3, $t7, draw_wall
+	beq	$t3, $t7, draw_wall     # 1 = wall
 
-	# 3 = hit-trap mark => LIGHT_GRAY
 	li	$t7, HIT_TRAP_VAL
-	beq	$t3, $t7, draw_hit_trap
+	beq	$t3, $t7, draw_hit_trap # 3 = hit trap
 
-	# 2 (hidden trap) or anything else => invisible
+    li  $t7, COIN_VAL
+    beq $t3, $t7, draw_coin     # 4 = coin
+
+    li  $t7, GATE_VAL
+    beq $t3, $t7, draw_gate     # 5 = locked gate
+
+	# 2 (hidden trap) => invisible
 	j	skip
 
 	draw_wall:
 		add 	$a0, $0, $t0
 		add 	$a1, $0, $t1
-		li  	$a2, BLUE
+		move  	$a2, $t8        # Dynamic Color
+		jal	draw_pixel
+		j	skip
+
+    draw_coin:
+		add 	$a0, $0, $t0
+		add 	$a1, $0, $t1
+		li  	$a2, NEON_ORANGE # NEW: Neon Orange
+		jal	draw_pixel
+		j	skip
+
+    draw_gate:
+		add 	$a0, $0, $t0
+		add 	$a1, $0, $t1
+		li  	$a2, MAGENTA    # Locked Gate is Magenta
 		jal	draw_pixel
 		j	skip
 
@@ -207,34 +216,24 @@ draw_Loop2:
 		li  	$a2, L_GRAY
 		jal	draw_pixel
 		j	skip
-
-			
 							
 skip:											
-	move	$a0, $t5		# reset
-	move	$a1, $t6		# reset
-	add	$s0, $s0, $t3		# sum = sum + mdArray[i][j]
-	
-	addi	$t0, $t0, 1		# i++
-	blt	$t0, $a1, draw_Loop2	# if (i < 15) --> loop again
-	addi	$t1, $t1, 1		# j++
-	move	$t0, $zero		# reset i = 0
+	move	$a0, $t5
+	move	$a1, $t6
+	addi	$t0, $t0, 1
+	blt	$t0, $a1, draw_Loop2
+	addi	$t1, $t1, 1
+	move	$t0, $zero
 	move	$t5, $a0
 	li	$v0, 4
 	la	$a0, NEW_LINE
 	syscall
-	move	$a0, $t5		# reset
+	move	$a0, $t5
 	j	draw_Loop1
 		
-	
-	
-
 
 #################################################
 # Generate maze outer moat
-# $a0 = array address
-# $a1 = array size
-# 
 generate_maze_outer_moat:
 # top/buttom outer moat
 top_btm:
@@ -243,251 +242,277 @@ top_btm:
 	li	$s1, 14		# btm y
 	li	$t4, 1
 t_b_loop: 				# for(x=0; x<max_x; x++)
-	# Define the 2D index address #
 	# top
-	mul	$t2, $s0, $a1		# t1 = rowIndex * colSize
-	add	$t2, $t2, $t0		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	sw	$t4, 0($t2)		# store 1 into the wall
+	mul	$t2, $s0, $a1
+	add	$t2, $t2, $t0
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	sw	$t4, 0($t2)
 	# bottom
-	mul	$t2, $s1, $a1		# t1 = rowIndex * colSize
-	add	$t2, $t2, $t0		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	sw	$t4, 0($t2)		# store 1 into the wall
-	addi	$t0, $t0, 1		# i++
-	bne	$t0, $a1, t_b_loop	# keep looping until x = 15
+	mul	$t2, $s1, $a1
+	add	$t2, $t2, $t0
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	sw	$t4, 0($t2)
+	addi	$t0, $t0, 1
+	bne	$t0, $a1, t_b_loop
 # left/right outer moat
 left_right:
-	# $s0 is used as left x and $s1 is used as right x
-	move	$t0, $zero		# j = 0
+	move	$t0, $zero
 l_r_loop:
-	# Define the 2D index address #
 	# left
-	mul	$t2, $t0, $a1		# t1 = rowIndex * colSize
-	add	$t2, $t2, $s0		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	sw	$t4, 0($t2)		# store 1 into the wall
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $s0
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	sw	$t4, 0($t2)
 	# right
-	mul	$t2, $t0, $a1		# t1 = rowIndex * colSize
-	add	$t2, $t2, $s1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	sw	$t4, 0($t2)		# store 1 into the wall
-	
-	addi	$t0, $t0, 1		# j++
-	bne	$t0, $a1, l_r_loop	# keep looping until x = 15
-	
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $s1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	sw	$t4, 0($t2)
+	addi	$t0, $t0, 1
+	bne	$t0, $a1, l_r_loop
 	jr	$ra
 
 
 #################################################
 # Generate maze street
-# $a0 = array address
-# $a1 = array size
 generate_maze_street:
-	li	$t0, 2			# j = 2
-	li	$t1, 2			# i = 2
-	li	$s0, 14			# arrSize - 1 = max_y = max_x
-	li	$s1, 1			# wall or prop
+	li	$t0, 2
+	li	$t1, 2
+	li	$s0, 14
+	li	$s1, 1
 	li	$s3, 3
 	li	$s4, 6
 	li	$s5, 9
 	
-maze_st_loop1:				# for(y=4; y<max_y-1; y+2)
+maze_st_loop1:
 	beq	$t0, $s0, check_x_location
 	j	maze_st_loop2
 	
 check_x_location:
 	beq	$t1, $s0, end_maze_st_loop
 
-maze_st_loop2:				# for(x=2; x<max_x-1; x+2)
+maze_st_loop2:
 	# Drop a prop for the wall
-	mul	$t2, $t0, $a1		# t2 = rowIndex * colSize
-	add	$t2, $t2, $t1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	sw	$s1, 0($t2)		# store 1 into the wall
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $t1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	sw	$s1, 0($t2)
 	
-	# Generate random integer between range 1 ~ 12
-	li	$t9, 0			# RANDOM INT value
-	move	$t5, $a0		# save $a0 temporary
-	move	$t6, $a1		# save $a1 temporary
-	li	$v0, 42 		# syscall 42 = generate random int
-	li 	$a1, 11 		# $a1 = upper bound
-	syscall     			# $a0 = reutrn value
-	addi 	$t9, $a0, 1		# random int + 1 
-	move	$a0, $t5		# reset
-	move	$a1, $t6		# reset
+	# Generate random integer
+	li	$t9, 0
+	move	$t5, $a0
+	move	$t6, $a1
+	li	$v0, 42
+	li 	$a1, 11
+	syscall
+	addi 	$t9, $a0, 1
+	move	$a0, $t5
+	move	$a1, $t6
 	
-	
-	# Case 1: 1  <= random int  <= 3
+	# Cases
 	sle   	$t7, $t9, $s3
 	bne	$t7, $zero, case1
-	# Case 2: 4  <= random int  <= 6
 	sle	$t7, $t9, $s4
 	bne	$t7, $zero, case2
-	# Case 3: 7  <= random int  <= 9
 	sle	$t7, $t9, $s5
 	bne	$t7, $zero, case3
-	# Case 4: 10 <= random int  <= 12
 	j	case4
 	
-
 case1:
-	# get element at array[x][y-1]
 	addi	$t0, $t0, -1
-	mul	$t2, $t0, $a1		# t2 = rowIndex * colSize
-	add	$t2, $t2, $t1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	lw	$t3, 0($t2)		# get the element
-	addi	$t0, $t0, 1		# reset
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $t1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	lw	$t3, 0($t2)
+	addi	$t0, $t0, 1
 	bne	$t3, $zero, reverse_x_index_by_two
 	sw	$s1, 0($t2)
 	j	next_x_index
 
 case2:
-	# get element at array[x][y+1]
 	addi	$t0, $t0, 1
-	mul	$t2, $t0, $a1		# t2 = rowIndex * colSize
-	add	$t2, $t2, $t1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	lw	$t3, 0($t2)		# store 1 into the wall
-	addi	$t0, $t0, -1		# reset
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $t1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	lw	$t3, 0($t2)
+	addi	$t0, $t0, -1
 	bne	$t3, $zero, reverse_x_index_by_two
 	sw	$s1, 0($t2)
 	j	next_x_index
 
 case3:
-	# get element at array[x-1][y]
 	addi	$t1, $t1, -1
-	mul	$t2, $t0, $a1		# t2 = rowIndex * colSize
-	add	$t2, $t2, $t1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	lw	$t3, 0($t2)		# store 1 into the wall
-	addi	$t1, $t1, 1		# reset
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $t1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	lw	$t3, 0($t2)
+	addi	$t1, $t1, 1
 	bne	$t3, $zero, reverse_x_index_by_two
 	sw	$s1, 0($t2)
 	j	next_x_index
 
 case4:
-	# get element at array[x+1][y]
 	addi	$t1, $t1, 1
-	mul	$t2, $t0, $a1		# t2 = rowIndex * colSize
-	add	$t2, $t2, $t1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	lw	$t3, 0($t2)		# store 1 into the wall
-	addi	$t1, $t1, -1		# reset
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $t1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	lw	$t3, 0($t2)
+	addi	$t1, $t1, -1
 	bne	$t3, $zero, reverse_x_index_by_two
 	sw	$s1, 0($t2)
 	j	next_x_index
 
 reverse_x_index_by_two:
 	addi	$t1, $t1, -2
-	#j	maze_st_loop2
 
 next_x_index:
-	# if
-	addi	$t1, $t1, 2		# i + 2
-	beq	$t1, $s0, check_y_location	# if (i == 14) -> check y and move or exit function
+	addi	$t1, $t1, 2
+	beq	$t1, $s0, check_y_location
 	j	maze_st_loop2
 	
-
-
 check_y_location:
-	addi	$t0, $t0, 2		# j + 2
-	li	$t1, 2			# reset i = 2
+	addi	$t0, $t0, 2
+	li	$t1, 2
 	beq	$t0, $s0, end_maze_st_loop
 	j	maze_st_loop1
 	
 end_maze_st_loop:
-	# call to set start and goal point
-	# start
-	li	$t1, MAZE_START_X	# x
-	li	$t0, MAZE_START_Y	# y
-	mul	$t2, $t0, $a1		# t2 = rowIndex * colSize
-	add	$t2, $t2, $t1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	sw	$zero, 0($t2)		# make a hole
-	# goal
-	li	$t1, MAZE_GOAL_X	# x
-	li	$t0, MAZE_GOAL_Y	# y
-	mul	$t2, $t0, $a1		# t2 = rowIndex * colSize
-	add	$t2, $t2, $t1		# 			 + colIndex
-	mul	$t2, $t2, DATA_SIZE	# multiply by the data size
-	add	$t2, $t2, $a0		# add base address
-	sw	$zero, 0($t2)		# make a hole
+	# Set Start (Clear)
+	li	$t1, MAZE_START_X
+	li	$t0, MAZE_START_Y
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $t1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	sw	$zero, 0($t2)
+	
+	# NEW: Set Goal to GATE_VAL (Locked Gate)
+	li	$t1, MAZE_GOAL_X
+	li	$t0, MAZE_GOAL_Y
+	mul	$t2, $t0, $a1
+	add	$t2, $t2, $t1
+	mul	$t2, $t2, DATA_SIZE
+	add	$t2, $t2, $a0
+	
+	li  $t4, GATE_VAL   # Load Gate Value (5)
+	sw	$t4, 0($t2)     # Store Gate
 	
 	jr	$ra
 	
 
-
 #########################################
 # Show Current location of the user
-#
 user_location:
-	# set up starting position
-	addi	$a0, $zero, 1		# column = 1
-	addi	$a1, $zero, 0		# row = 0
-	addi 	$a2, $0, RED  		# a2 = red (ox00RRGGBB)
-	lw	$s6, arrSize		# colSize	
-	la	$s7, mdArray		# array base address
+	addi	$a0, $zero, 1		# start X
+	addi	$a1, $zero, 0		# start Y
+	addi 	$a2, $0, RED  		# color
+	lw	$s6, arrSize
+	la	$s7, mdArray
+
 loop_user_location:
 	jal 	draw_pixel
 	
-	# check for input
-	lw $t0, 0xffff0000  #t1 holds if input available
-    	beq $t0, 0, loop_user_location   #If no input, keep displaying
+	# check input
+	lw $t0, 0xffff0000
+    beq $t0, 0, loop_user_location
 	
 	# process input
 	lw 	$s1, 0xffff0004
-	beq	$s1, 32, exit	# input space
-	beq	$s1, 119, up 	# input w
-	beq	$s1, 115, down 	# input s
-	beq	$s1, 97, left  	# input a
-	beq	$s1, 100, right	# input d
-	# invalid input, ignore
+	
+	beq	$s1, 32, exit	
+
+    # Color Change Keys
+    beq $s1, 49, set_color_blue  # '1'
+    beq $s1, 50, set_color_green # '2'
+    beq $s1, 51, set_color_cyan  # '3'
+
+    # Movement
+	beq	$s1, 119, up 	# w
+	beq	$s1, 115, down 	# s
+	beq	$s1, 97, left  	# a
+	beq	$s1, 100, right	# d
+    
 	j	loop_user_location
 
-# process valid input	
-up:
-	# Check if you are allowed to go to that location
-	beq	$a1, $zero, skip_move_up
-	addi	$t4, $a1, -1			# y-1 as "up"
+# Color Change Handlers
+set_color_blue:
+    li      $t0, BLUE
+    sw      $t0, wallColor
+    j       refresh_map
+set_color_green:
+    li      $t0, GREEN
+    sw      $t0, wallColor
+    j       refresh_map
+set_color_cyan:
+    li      $t0, CYAN
+    sw      $t0, wallColor
+    j       refresh_map
 
-	# get element at array[x][y-1]
+refresh_map:
+    move    $s4, $a0        # Save Player X/Y
+    move    $s5, $a1
+    la      $a0, mdArray
+    lw      $a1, arrSize
+    jal     draw_maze
+    move    $a0, $s4        # Restore Player
+    move    $a1, $s5
+    li      $a2, RED
+    jal     draw_pixel
+    j       loop_user_location
+
+# MOVEMENT LOGIC
+up:
+	beq	$a1, $zero, skip_move_up
+	addi	$t4, $a1, -1
+
+	# get mdArray[x][y-1]
 	mul	$t2, $t4, $s6
 	add	$t2, $t2, $a0
 	mul	$t2, $t2, DATA_SIZE
 	add	$t2, $t2, $s7
-	lw	$t3, 0($t2)		# next cell value
+	lw	$t3, 0($t2)
 
 	li	$t7, 1
-	beq	$t3, $t7, skip_move_up     # wall => ignore
+	beq	$t3, $t7, skip_move_up    # Wall collision
+
+    li  $t7, GATE_VAL
+    beq $t3, $t7, skip_move_up    # Locked Gate collision
+
+    li  $t7, COIN_VAL
+    beq $t3, $t7, collect_coin_up
 
 	li	$t7, TRAP_VAL
 	bne	$t3, $t7, not_trap_up
 
-	# trap hit: save trap (x,y) then trigger
-	move	$s2, $a0        # trapX = next x (same column)
-	move	$s3, $t4        # trapY = next y
+	# trap hit
+	move	$s2, $a0
+	move	$s3, $t4
 	j	trap_trigger
 
+collect_coin_up:
+    lw      $t8, coinsCollected
+    addi    $t8, $t8, 1
+    sw      $t8, coinsCollected
+    sw      $zero, 0($t2)   # clear coin
+    jal     check_unlock_gate
+    j       not_trap_up
+
 not_trap_up:
-	# allow move if cell is 0 (path) OR 3 (used-trap mark)
 	li	$t7, HIT_TRAP_VAL
 	beq	$t3, $t7, do_move_up
-	bne	$t3, $zero, skip_move_up   # any other nonzero => block
+	bne	$t3, $zero, skip_move_up
 
 do_move_up:
-	li	$a2, 0		# black out the old pixel
+	li	$a2, 0
 	jal	draw_pixel
 	addi	$a1, $a1, -1
 	addi 	$a2, $0, RED
@@ -497,13 +522,11 @@ skip_move_up:
 	j	loop_user_location
 
 	
-
 down:
-	addi	$t4, $a1, 1			# y+1 as "down"
+	addi	$t4, $a1, 1
 	li	$t5, MAZE_GOAL_X
 	li	$t6, MAZE_GOAL_Y
 
-	# get element at array[x][y+1]
 	mul	$t2, $t4, $s6
 	add	$t2, $t2, $a0
 	mul	$t2, $t2, DATA_SIZE
@@ -511,18 +534,30 @@ down:
 	lw	$t3, 0($t2)
 
 	li	$t7, 1
-	beq	$t3, $t7, skip_move_down   # wall => ignore
+	beq	$t3, $t7, skip_move_down
 
+    li  $t7, GATE_VAL
+    beq $t3, $t7, skip_move_down
+
+    li  $t7, COIN_VAL
+    beq $t3, $t7, collect_coin_down
+    
 	li	$t7, TRAP_VAL
 	bne	$t3, $t7, not_trap_down
 
-	# trap hit
 	move	$s2, $a0
 	move	$s3, $t4
 	j	trap_trigger
 
+collect_coin_down:
+    lw      $t8, coinsCollected
+    addi    $t8, $t8, 1
+    sw      $t8, coinsCollected
+    sw      $zero, 0($t2)
+    jal     check_unlock_gate
+    j       not_trap_down
+
 not_trap_down:
-	# allow move if 0 or HIT_TRAP_VAL
 	li	$t7, HIT_TRAP_VAL
 	beq	$t3, $t7, do_move_down
 	bne	$t3, $zero, skip_move_down
@@ -536,17 +571,16 @@ do_move_down:
 
 	# Check If User Reached Goal
 	bne	$a0, $t5, skip_move_down
-	beq	$a1, $t6, goal_reached
+	bne	$a1, $t6, skip_move_down
+	j	goal_reached
 
 skip_move_down:
 	j	loop_user_location
 
 	
-	
 left:
-	addi	$t4, $a0, -1			# x-1 as "left"
+	addi	$t4, $a0, -1
 
-	# get element at array[x-1][y]
 	mul	$t2, $a1, $s6
 	add	$t2, $t2, $t4
 	mul	$t2, $t2, DATA_SIZE
@@ -556,13 +590,26 @@ left:
 	li	$t7, 1
 	beq	$t3, $t7, skip_move_left
 
+    li  $t7, GATE_VAL
+    beq $t3, $t7, skip_move_left
+
+    li  $t7, COIN_VAL
+    beq $t3, $t7, collect_coin_left
+
 	li	$t7, TRAP_VAL
 	bne	$t3, $t7, not_trap_left
 
-	# trap hit (next x is t4)
 	move	$s2, $t4
 	move	$s3, $a1
 	j	trap_trigger
+
+collect_coin_left:
+    lw      $t8, coinsCollected
+    addi    $t8, $t8, 1
+    sw      $t8, coinsCollected
+    sw      $zero, 0($t2)
+    jal     check_unlock_gate
+    j       not_trap_left
 
 not_trap_left:
 	li	$t7, HIT_TRAP_VAL
@@ -581,9 +628,8 @@ skip_move_left:
 
 	
 right:
-	addi	$t4, $a0, 1			# x+1 as "right"
+	addi	$t4, $a0, 1
 
-	# get element at array[x+1][y]
 	mul	$t2, $a1, $s6
 	add	$t2, $t2, $t4
 	mul	$t2, $t2, DATA_SIZE
@@ -593,13 +639,26 @@ right:
 	li	$t7, 1
 	beq	$t3, $t7, skip_move_right
 
+    li  $t7, GATE_VAL
+    beq $t3, $t7, skip_move_right
+
+    li  $t7, COIN_VAL
+    beq $t3, $t7, collect_coin_right
+
 	li	$t7, TRAP_VAL
 	bne	$t3, $t7, not_trap_right
 
-	# trap hit
 	move	$s2, $t4
 	move	$s3, $a1
 	j	trap_trigger
+
+collect_coin_right:
+    lw      $t8, coinsCollected
+    addi    $t8, $t8, 1
+    sw      $t8, coinsCollected
+    sw      $zero, 0($t2)
+    jal     check_unlock_gate
+    j       not_trap_right
 
 not_trap_right:
 	li	$t7, HIT_TRAP_VAL
@@ -617,70 +676,98 @@ skip_move_right:
 	j	loop_user_location
 
 
+#################################################
+# Helper: Check if all coins collected to open gate
+check_unlock_gate:
+    lw      $t8, coinsCollected
+    li      $t9, NUM_COINS
+    bne     $t8, $t9, skip_unlock
+
+    # Unlock the Gate!
+    # Goal location address
+    li      $t0, MAZE_GOAL_X
+    li      $t1, MAZE_GOAL_Y
+    lw      $t6, arrSize
+    
+    mul     $t2, $t1, $t6       # y * width
+    add     $t2, $t2, $t0       # + x
+    mul     $t2, $t2, 4
+    la      $t5, mdArray
+    add     $t2, $t2, $t5
+    
+    sw      $zero, 0($t2)       # Store 0 (Path) to clear gate
+
+    # Visually clear the gate (draw black)
+    addi    $sp, $sp, -4
+    sw      $ra, 0($sp)
+    
+    move    $a0, $t0
+    move    $a1, $t1
+    li      $a2, 0              # Black
+    jal     draw_pixel
+    
+    lw      $ra, 0($sp)
+    addi    $sp, $sp, 4
+
+skip_unlock:
+    jr      $ra
 
 
 ##############################################
 goal_reached:
 	# Show message
-	# Board
 	li	$a0, 0	# x
 	li	$a1, 0	# y
 	addi 	$a2, $0, YELLOW
-	li	$s0, 256	# stop
+	li	$s0, 256
 	j	loop_board2
 	
 #################################################
 # place_traps
-# $a0 = mdArray base
-# $a1 = arrSize (15)
-# Places NUM_TRAPS traps (TRAP_VAL) on path cells only.
 place_traps:
     addi $sp, $sp, -4
     sw   $ra, 0($sp)
 
-    li   $t8, 0              # traps placed
+    li   $t8, 0
 
 trap_loop:
-    move $t5, $a0            # save base
-    move $t6, $a1            # save size
+    move $t5, $a0
+    move $t6, $a1
 
-    # random x in [1, a1-2]  => 1..13
-    li   $v0, 42
-    addi $a1, $t6, -2        # upper bound
-    syscall
-    addi $t0, $a0, 1         # x = rand + 1
-
-    # random y in [1, a1-2]  => 1..13
     li   $v0, 42
     addi $a1, $t6, -2
     syscall
-    addi $t1, $a0, 1         # y = rand + 1
+    addi $t0, $a0, 1
 
-    move $a0, $t5            # restore base
-    move $a1, $t6            # restore size
+    li   $v0, 42
+    addi $a1, $t6, -2
+    syscall
+    addi $t1, $a0, 1
 
-    # avoid start tile
+    move $a0, $t5
+    move $a1, $t6
+
+    # avoid start
     li   $t2, MAZE_START_X
     bne  $t0, $t2, check_goal_trap
     li   $t2, MAZE_START_Y
     beq  $t1, $t2, trap_loop
 
 check_goal_trap:
-    # avoid goal tile
+    # avoid goal (Note: Goal is now Gate=5, so it's not 0 anyway)
     li   $t2, MAZE_GOAL_X
     bne  $t0, $t2, check_cell_trap
     li   $t2, MAZE_GOAL_Y
     beq  $t1, $t2, trap_loop
 
 check_cell_trap:
-    # addr = base + 4*(y*size + x)
     mul  $t2, $t1, $a1
     add  $t2, $t2, $t0
     mul  $t2, $t2, DATA_SIZE
     add  $t2, $t2, $a0
 
     lw   $t3, 0($t2)
-    bne  $t3, $zero, trap_loop   # only place on path (0)
+    bne  $t3, $zero, trap_loop   # only place on empty path
 
     li   $t4, TRAP_VAL
     sw   $t4, 0($t2)
@@ -695,8 +782,66 @@ check_cell_trap:
 
 
 #################################################
+# place_coins
+place_coins:
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+    li   $t8, 0
+
+coin_loop_p:
+    move $t5, $a0
+    move $t6, $a1
+
+    li   $v0, 42
+    addi $a1, $t6, -2
+    syscall
+    addi $t0, $a0, 1
+
+    li   $v0, 42
+    addi $a1, $t6, -2
+    syscall
+    addi $t1, $a0, 1
+
+    move $a0, $t5
+    move $a1, $t6
+
+    # avoid start
+    li   $t2, MAZE_START_X
+    bne  $t0, $t2, check_goal_coin_p
+    li   $t2, MAZE_START_Y
+    beq  $t1, $t2, coin_loop_p
+
+check_goal_coin_p:
+    # avoid goal
+    li   $t2, MAZE_GOAL_X
+    bne  $t0, $t2, check_cell_coin_p
+    li   $t2, MAZE_GOAL_Y
+    beq  $t1, $t2, coin_loop_p
+
+check_cell_coin_p:
+    mul  $t2, $t1, $a1
+    add  $t2, $t2, $t0
+    mul  $t2, $t2, DATA_SIZE
+    add  $t2, $t2, $a0
+
+    lw   $t3, 0($t2)
+    bne  $t3, $zero, coin_loop_p   # only place on path
+
+    li   $t4, COIN_VAL
+    sw   $t4, 0($t2)
+
+    addi $t8, $t8, 1
+    li   $t7, NUM_COINS
+    blt  $t8, $t7, coin_loop_p
+
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+
+#################################################
 # clear_screen
-# expects $a2=color, fills whole 16x16 logical grid
 clear_screen:
     addi $sp, $sp, -4
     sw   $ra, 0($sp)
@@ -730,8 +875,6 @@ d3_loop:
 
 #################################################
 # Helpers for letters
-# $a0=start x, $a1=start y, $a3=end (x for hline, y for vline), $a2=color
-
 draw_hline:
     addi $sp, $sp, -4
     sw   $ra, 0($sp)
@@ -762,27 +905,22 @@ vloop:
 #################################################
 # trap_trigger
 trap_trigger:
-    # ---- MARK TRAP AS HIT (visible gray later) ----
-    # mdArray[trapY][trapX] = HIT_TRAP_VAL
-    mul  $t2, $s3, $s6        # t2 = trapY * arrSize
-    add  $t2, $t2, $s2        # t2 = trapY*size + trapX
-    mul  $t2, $t2, DATA_SIZE  # word offset
-    add  $t2, $t2, $s7        # base + offset
+    # Mark trap as used
+    mul  $t2, $s3, $s6
+    add  $t2, $t2, $s2
+    mul  $t2, $t2, DATA_SIZE
+    add  $t2, $t2, $s7
     li   $t4, HIT_TRAP_VAL
     sw   $t4, 0($t2)
 
-    # ---- rest of your trap screen code follows ----
+    # TRAP ANIMATION
     li  $a2, RED
     jal clear_screen
-
-    # RED background
     li  $a2, RED
     jal clear_screen
-
-    # WHITE letters spelling "TRAP"
     li  $a2, WHITE
 
-    # --- T ---
+    # T
     li $a0, 1
     li $a1, 4
     li $a3, 3
@@ -791,8 +929,7 @@ trap_trigger:
     li $a1, 4
     li $a3, 8
     jal draw_vline
-
-    # --- R ---
+    # R
     li $a0, 5
     li $a1, 4
     li $a3, 8
@@ -815,8 +952,7 @@ trap_trigger:
     li $a0, 7
     li $a1, 8
     jal draw_pixel
-
-    # --- A ---
+    # A
     li $a0, 9
     li $a1, 5
     li $a3, 8
@@ -833,8 +969,7 @@ trap_trigger:
     li $a1, 6
     li $a3, 11
     jal draw_hline
-
-    # --- P ---
+    # P
     li $a0, 13
     li $a1, 4
     li $a3, 8
@@ -852,19 +987,16 @@ trap_trigger:
     li $a3, 6
     jal draw_vline
 
-    # delay ~3 seconds
     jal delay_3s
 
-    # clear back to WHITE
+    # Restore Map
     li  $a2, WHITE
     jal clear_screen
-
-    # redraw maze (walls only)
     la  $a0, mdArray
     lw  $a1, arrSize
     jal draw_maze
 
-    # reset player to start
+    # Reset Player
     li  $a0, MAZE_START_X
     li  $a1, MAZE_START_Y
     li  $a2, RED
@@ -873,25 +1005,16 @@ trap_trigger:
     j loop_user_location
 
 
-#loop_board1:
-#	beq	$a0, $s0, exit
 loop_board2:
 	jal	draw_pixel
-	addi	$a0, $a0, 1	#i++
+	addi	$a0, $a0, 1
 	beq	$a0, $s0, completed_board
 	j	loop_board2
 
-#check_board_y:
-#	addi	$a1, $a1, 1	#j++
-#	j	loop_board1
-
-
 completed_board:
-	## GOAL! ##
-	
 	# G
-	li	$a0, 1	#x
-	li	$a1, 2	#y
+	li	$a0, 1
+	li	$a1, 2
 	addi 	$a2, $0, RED
 	jal	draw_pixel
 	addi	$a0, $a0, 1
@@ -900,7 +1023,7 @@ completed_board:
 	jal	draw_pixel
 	addi	$a0, $a0, 1
 	jal	draw_pixel
-	li	$a0, 1	# reset
+	li	$a0, 1
 	
 	addi	$a1, $a1, 1
 	jal	draw_pixel
@@ -920,7 +1043,6 @@ completed_board:
 	addi	$a0, $a0, 1
 	jal	draw_pixel
 	
-	
 	addi	$a1, $a1, -1
 	jal	draw_pixel
 	addi	$a1, $a1, -1
@@ -930,11 +1052,10 @@ completed_board:
 	
 	addi	$a0, $a0, -1
 	jal	draw_pixel
-	
 	
 	# O
-	li	$a0, 8	#x
-	li	$a1, 2	#y
+	li	$a0, 8
+	li	$a1, 2
 	
 	addi	$a1, $a1, 1
 	jal	draw_pixel
@@ -946,7 +1067,6 @@ completed_board:
 	jal	draw_pixel
 	addi	$a1, $a1, 1
 	jal	draw_pixel
-	
 	
 	addi	$a0, $a0, 1
 	jal	draw_pixel
@@ -972,11 +1092,10 @@ completed_board:
 	jal	draw_pixel
 	addi	$a0, $a0, -1
 	jal	draw_pixel
-	
 	
 	# A
-	li	$a0, 1	#x
-	li	$a1, 10	#y
+	li	$a0, 1
+	li	$a1, 10
 	
 	jal	draw_pixel
 	addi	$a1, $a1, 1
@@ -1017,8 +1136,8 @@ completed_board:
 	jal	draw_pixel
 	
 	# L
-	li	$a0, 8	#x
-	li	$a1, 10	#y
+	li	$a0, 8
+	li	$a1, 10
 	
 	jal	draw_pixel
 	addi	$a1, $a1, 1
@@ -1029,7 +1148,6 @@ completed_board:
 	jal	draw_pixel
 	addi	$a1, $a1, 1
 	jal	draw_pixel
-	
 	
 	addi	$a0, $a0, 1
 	jal	draw_pixel
@@ -1037,11 +1155,10 @@ completed_board:
 	jal	draw_pixel
 	addi	$a0, $a0, 1
 	jal	draw_pixel
-	
 	
 	# !
-	li	$a0, 14	#x
-	li	$a1, 10	#y
+	li	$a0, 14
+	li	$a1, 10
 	
 	jal	draw_pixel
 	addi	$a1, $a1, 1
