@@ -1,5 +1,6 @@
-# maze_with_traps_v3.asm
+# maze_with_traps_v3_fixed.asm
 # Features: Dynamic Walls, Hidden Traps, 3 Neon Orange Coins, Locked Goal Gate
+# Fix Applied: Stack save/restore in check_unlock_gate to prevent player teleportation
 
 .data
 mdArray:	.word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
@@ -698,16 +699,23 @@ check_unlock_gate:
     sw      $zero, 0($t2)       # Store 0 (Path) to clear gate
 
     # Visually clear the gate (draw black)
-    addi    $sp, $sp, -4
-    sw      $ra, 0($sp)
     
-    move    $a0, $t0
-    move    $a1, $t1
+    # --- FIX: SAVE PLAYER COORDINATES ---
+    addi    $sp, $sp, -12       # Make room for $ra, $a0, $a1
+    sw      $ra, 0($sp)
+    sw      $a0, 4($sp)         # Save Player X
+    sw      $a1, 8($sp)         # Save Player Y
+    
+    move    $a0, $t0            # Set Gate X
+    move    $a1, $t1            # Set Gate Y
     li      $a2, 0              # Black
     jal     draw_pixel
     
     lw      $ra, 0($sp)
-    addi    $sp, $sp, 4
+    lw      $a0, 4($sp)         # Restore Player X
+    lw      $a1, 8($sp)         # Restore Player Y
+    addi    $sp, $sp, 12
+    # ------------------------------------
 
 skip_unlock:
     jr      $ra
