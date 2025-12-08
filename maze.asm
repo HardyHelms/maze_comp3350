@@ -1,7 +1,3 @@
-# maze_with_traps_v3_fixed.asm
-# Features: Dynamic Walls, Hidden Traps, 3 Neon Orange Coins, Locked Goal Gate
-# Fix Applied: Stack save/restore in check_unlock_gate to prevent player teleportation
-
 .data
 mdArray:	.word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 		.word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
@@ -52,7 +48,7 @@ wallColor:      .word 0x000000FF  # Default wall color (BLUE)
 .eqv	CYAN 	    0x0000FFFF
 .eqv	MAGENTA     0x00FF00FF
 .eqv	L_GRAY	    0x00D3D3D3
-.eqv    NEON_ORANGE 0x00FF5F1F  # NEW: Neon Orange Color
+.eqv    NEON_ORANGE 0x00FF5F1F  
 
 # Map Values
 # 0 = Path, 1 = Wall
@@ -63,7 +59,7 @@ wallColor:      .word 0x000000FF  # Default wall color (BLUE)
 .eqv COIN_VAL       4
 .eqv NUM_COINS      3
 
-.eqv GATE_VAL       5   # NEW: Value for the locked gate
+.eqv GATE_VAL       5   
 
 .text
 main:
@@ -131,7 +127,7 @@ exit:
 	syscall
 
 
-#################################################
+
 # subroutine to draw a pixel
 # $a0 = X, $a1 = Y, $a2 = color
 draw_pixel:
@@ -143,7 +139,7 @@ draw_pixel:
 	jr 	$ra
 	
 
-#################################################
+
 # draw_maze 
 # Draws the map based on mdArray values
 draw_maze:
@@ -200,7 +196,7 @@ draw_Loop2:
     draw_coin:
 		add 	$a0, $0, $t0
 		add 	$a1, $0, $t1
-		li  	$a2, NEON_ORANGE # NEW: Neon Orange
+		li  	$a2, NEON_ORANGE 
 		jal	draw_pixel
 		j	skip
 
@@ -233,7 +229,7 @@ skip:
 	j	draw_Loop1
 		
 
-#################################################
+
 # Generate maze outer moat
 generate_maze_outer_moat:
 # top/buttom outer moat
@@ -278,7 +274,7 @@ l_r_loop:
 	jr	$ra
 
 
-#################################################
+
 # Generate maze street
 generate_maze_street:
 	li	$t0, 2
@@ -396,7 +392,7 @@ end_maze_st_loop:
 	add	$t2, $t2, $a0
 	sw	$zero, 0($t2)
 	
-	# NEW: Set Goal to GATE_VAL (Locked Gate)
+	# Set Goal to GATE_VAL (Locked Gate)
 	li	$t1, MAZE_GOAL_X
 	li	$t0, MAZE_GOAL_Y
 	mul	$t2, $t0, $a1
@@ -410,7 +406,7 @@ end_maze_st_loop:
 	jr	$ra
 	
 
-#########################################
+ 
 # Show Current location of the user
 user_location:
 	addi	$a0, $zero, 1		# start X
@@ -677,7 +673,7 @@ skip_move_right:
 	j	loop_user_location
 
 
-#################################################
+
 # Helper: Check if all coins collected to open gate
 check_unlock_gate:
     lw      $t8, coinsCollected
@@ -700,7 +696,6 @@ check_unlock_gate:
 
     # Visually clear the gate (draw black)
     
-    # --- FIX: SAVE PLAYER COORDINATES ---
     addi    $sp, $sp, -12       # Make room for $ra, $a0, $a1
     sw      $ra, 0($sp)
     sw      $a0, 4($sp)         # Save Player X
@@ -715,13 +710,11 @@ check_unlock_gate:
     lw      $a0, 4($sp)         # Restore Player X
     lw      $a1, 8($sp)         # Restore Player Y
     addi    $sp, $sp, 12
-    # ------------------------------------
 
 skip_unlock:
     jr      $ra
 
 
-##############################################
 goal_reached:
 	# Show message
 	li	$a0, 0	# x
@@ -730,7 +723,7 @@ goal_reached:
 	li	$s0, 256
 	j	loop_board2
 	
-#################################################
+
 # place_traps
 place_traps:
     addi $sp, $sp, -4
@@ -789,7 +782,7 @@ check_cell_trap:
     jr   $ra
 
 
-#################################################
+
 # place_coins
 place_coins:
     addi $sp, $sp, -4
@@ -848,7 +841,7 @@ check_cell_coin_p:
     jr   $ra
 
 
-#################################################
+
 # clear_screen
 clear_screen:
     addi $sp, $sp, -4
@@ -870,7 +863,7 @@ cs_x:
     jr   $ra
 
 
-#################################################
+
 # crude busy-wait delay
 delay_3s:
     li $t0, 0
@@ -881,7 +874,7 @@ d3_loop:
     jr   $ra
 
 
-#################################################
+
 # Helpers for letters
 draw_hline:
     addi $sp, $sp, -4
@@ -910,7 +903,7 @@ vloop:
     jr   $ra
 
 
-#################################################
+
 # trap_trigger
 trap_trigger:
     # Mark trap as used
